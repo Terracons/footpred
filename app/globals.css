@@ -41,6 +41,14 @@ section > .seg:first-of-type { margin-top:0; }
 .go { width:100%; border:0; border-radius:12px; padding:14px; background:var(--stamp); color:var(--on-stamp); font:700 1.05rem var(--font-display), system-ui; }
 .go:disabled { opacity:.6; cursor:wait; }
 
+.fields { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.fields label { display:grid; gap:4px; font-size:.82rem; color:var(--mute); }
+.fields input { padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); width:100%; min-width:0; }
+.panel section > .check + .check { margin-top:10px; }
+.adv summary { cursor:pointer; font-weight:600; }
+.advbody { display:grid; gap:14px; margin-top:12px; }
+.who .why { font-size:.8rem; color:var(--paper-mute); opacity:.9; }
+
 .out { min-width:0; }
 .meta { margin:0 0 10px; color:var(--mute); font-size:.92rem; overflow-wrap:anywhere; }
 .warn { margin:0 0 10px; color:var(--bad); font-size:.9rem; overflow-wrap:anywhere; }
