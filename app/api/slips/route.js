@@ -3,14 +3,13 @@ import { predict } from "../../../lib/ai.js";
 import { enrich } from "../../../lib/stats.js";
 import { enrichAll } from "../../../lib/enrich.js";
 import { prepare, solve } from "../../../lib/pipeline.js";
-import { isSimulated, DEFAULTS } from "../../../lib/slips.js";
+import { isSimulated, DEFAULTS, parseMarkets } from "../../../lib/slips.js";
 import { researchNews } from "../../../lib/news.js";
 
 // Past stats for up to 100 matches, AI predictions and one selector call per target all happen in this request.
 // Raise this as far as your hosting plan allows.
 export const maxDuration = 300;
 
-const KINDS = { totals: ["totals"], result: ["result"] }; // anything else means all markets
 const blank = (v) => v === undefined || v === null || String(v).trim() === "";
 // A number from the request, kept inside lo and hi. Falls back to d when it is missing or not a number.
 const num = (v, lo, hi, d) => {
@@ -26,7 +25,12 @@ export async function POST(req) {
   if (!targets.length || !models.length) {
     return Response.json({ error: "Pick at least one target and one model." }, { status: 400 });
   }
-  const kinds = KINDS[body.markets] || null;
+  // body.markets: "all", or one or more keys such as ["dc_no12", "under"] (see MARKET_OPTIONS in lib/slips.js).
+  // Legacy values "totals" and "result" still work.
+  const parsed = parseMarkets(body.markets);
+  const kinds = parsed.sel;
+  if (parsed.unknown.length) return Response.json({ error: `Unknown market: ${parsed.unknown.join(", ")}` }, { status: 400 });
+  if (kinds && !kinds.length) return Response.json({ error: "Pick at least one market." }, { status: 400 });
   // Time window: any number of hours (1 to 168), starting now or a number of hours from now (0 to 96). OddsPapi reads at most 10 days at a time.
   const fromHours = Math.round(num(body.fromHours, 0, 96, 0));
   const hours = Math.min(Math.round(num(body.hours, 1, 168, 47)), 240 - fromHours);
@@ -53,6 +57,7 @@ export async function POST(req) {
     maxLegOdds: body.maxLegOdds === undefined ? DEFAULTS.maxLegOdds : num(body.maxLegOdds, 1.05, 100, Infinity),
     newsCalls,
   };
+  if (body.prefer1X === false) opts.pref = {}; // no preference for 1, 2, 1X, X2 over 12
   if (!blank(body.minLegs)) opts.minLegs = Math.round(num(body.minLegs, 1, 40, 1));
   if (!blank(body.maxLegs)) opts.maxLegs = Math.round(num(body.maxLegs, 1, 40, 30));
   if (opts.minLegs && opts.maxLegs && opts.maxLegs < opts.minLegs) opts.maxLegs = opts.minLegs;

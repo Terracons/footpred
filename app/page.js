@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 const PRESET_TARGETS = [5, 10, 20, 50, 100, 200];
 // Any OpenRouter model id works. Check current names at openrouter.ai/models.
 const PRESET_MODELS = ["minimax/minimax-m3.1-flash", "deepseek/deepseek-v4.1-flash-1017", "deepseek/deepseek-chat"];
-const MARKETS = [["all", "All markets"], ["totals", "Over/under"], ["result", "Result"]];
+const MARKETS = [
+  ["result", "Result (1, X, 2)"], ["win", "1 or 2 only"], ["doublechance", "Double chance (1X, X2, 12)"],
+  ["dc_no12", "1X or X2 only"], ["dc_12", "12 only"],
+  ["totals", "Over/under"], ["over", "Over only"], ["under", "Under only"],
+  ["btts", "Both teams to score"], ["corners", "Corners"], ["corners_over", "Corners over only"], ["corners_under", "Corners under only"],
+];
 const WINDOW_PRESETS = [6, 12, 24, 48, 72, 168];
 const BASES = [["led", "Past stats lead"], ["balanced", "Balanced with market"]];
 const STORE = "slip-lab:v3";
@@ -91,7 +96,7 @@ export default function Home() {
   const [targets, setTargets] = useState([10, 50, 100]);
   const [models, setModels] = useState([PRESET_MODELS[0]]);
   const [mode, setMode] = useState("blend");
-  const [markets, setMarkets] = useState("all");
+  const [markets, setMarkets] = useState(["all"]);
   const [hours, setHours] = useState("47");
   const [fromHours, setFromHours] = useState("0");
   const [leagues, setLeagues] = useState("");
@@ -121,7 +126,7 @@ export default function Home() {
         if (v.targets?.length) setTargets(v.targets);
         if (v.models?.length) setModels(v.models);
         if (v.mode) setMode(v.mode);
-        if (v.markets) setMarkets(v.markets);
+        if (v.markets) setMarkets(Array.isArray(v.markets) ? v.markets : [v.markets]);
         const str = (x, set) => { if (x !== undefined && x !== null) set(String(x)); };
         str(v.hours, setHours); str(v.fromHours, setFromHours); str(v.leagues, setLeagues);
         str(v.minLegs, setMinLegs); str(v.maxLegs, setMaxLegs); str(v.minLegOdds, setMinLegOdds);
@@ -208,7 +213,18 @@ export default function Home() {
           </section>
           <section>
             <h2>Markets</h2>
-            <Seg label="Markets" value={markets} onChange={setMarkets} options={MARKETS} />
+            <p className="help">Pick any mix. Only these outcomes can become legs.</p>
+            <div className="seg wrap" role="group" aria-label="Markets">
+              <button type="button" aria-pressed={markets.includes("all")} onClick={() => setMarkets(["all"])}>All markets</button>
+              {MARKETS.map(([v, t]) => (
+                <button key={v} type="button" aria-pressed={markets.includes(v)}
+                  onClick={() => setMarkets((cur) => {
+                    const base = cur.filter((x) => x !== "all");
+                    const next = base.includes(v) ? base.filter((x) => x !== v) : [...base, v];
+                    return next.length ? next : ["all"];
+                  })}>{t}</button>
+              ))}
+            </div>
           </section>
           <section>
             <h2>Kick off window</h2>
