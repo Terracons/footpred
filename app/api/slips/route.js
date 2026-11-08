@@ -5,6 +5,7 @@ import { enrichAll } from "../../../lib/enrich.js";
 import { prepare, solve } from "../../../lib/pipeline.js";
 import { isSimulated, DEFAULTS, parseMarkets } from "../../../lib/slips.js";
 import { researchNews } from "../../../lib/news.js";
+import { recordRun } from "../../../lib/ledger.js";
 
 // Past stats for up to 100 matches, AI predictions and one selector call per target all happen in this request.
 // Raise this as far as your hosting plan allows.
@@ -63,12 +64,19 @@ export async function POST(req) {
   if (opts.minLegs && opts.maxLegs && opts.maxLegs < opts.minLegs) opts.maxLegs = opts.minLegs;
   if (body.minProb != null && Number(body.minProb) >= 0 && Number(body.minProb) <= 0.95) opts.minProb = Number(body.minProb);
 
-  try {
+  // From here the answer is streamed, one JSON object per line: a "plan", a "stage" event as each stage starts, and finally
+  // "result" or "error". The page turns these into its progress bar and time estimate. Problems found above (bad input)
+  // are still ordinary JSON responses with a status code.
+  const stages = ["odds", "stats", ...(newsCalls > 0 ? ["news"] : []), "ai", "slips"];
+  const fail = (error) => new Error(error);
+  const work = async (send) => {
+    send({ type: "plan", stages, n: matchLimit, models: models.length, targets: targets.length, news: newsCalls, selector: !!selectorModel });
+    send({ type: "stage", id: "odds" });
     const upcoming = (await getMatches(hours, matchLimit, fromHours, leagues)).filter((m) => new Date(m.start) > new Date());
     const matches = upcoming.filter((m) => !isSimulated(m)).map((m) => ({ ...m }));
     const skipped = upcoming.length - matches.length;
     if (matches.length < 3) {
-      return Response.json({ error: `Only ${matches.length} real (non-simulated) Stake matches with odds between ${fromHours} and ${fromHours + hours} hours from now. Try a longer window or clear the league filter.` }, { status: 404 });
+      throw fail(`Only ${matches.length} real (non-simulated) Stake matches with odds between ${fromHours} and ${fromHours + hours} hours from now. Try a longer window or clear the league filter.`);
     }
 
     // Stages 1 and 2, once: past performance, league position and match type for every match, then the stats ranking.
@@ -78,22 +86,25 @@ export async function POST(req) {
     const form = useApi
       ? (list) => enrich(list, Number(process.env.FORM_MATCHES) || list.length)
       : (list, n, sport) => enrichAll(list, Number(process.env.FORM_MATCHES) || n, sport);
+    send({ type: "stage", id: "stats", n: Math.min(matches.length, opts.maxEnrich) });
     const prep = await prepare({ matches, kinds, opts, enrich: form });
     const warnings = [...prep.warnings];
     if (useApi) warnings.unshift("FORM_SOURCE is apifootball, which gives form text only. The stats model was skipped and picks use the market and AI.");
     if (skipped) warnings.unshift(`Skipped ${skipped} simulated (SRL or virtual) matches. Their results are random, so stats and form mean nothing.`);
     if (!prep.list.length) {
-      return Response.json({ error: `No match had usable past data. ${prep.warnings.join(" ")}`.trim() }, { status: 404 });
+      throw fail(`No match had usable past data. ${prep.warnings.join(" ")}`.trim());
     }
 
     // Stage 3a: web news for the best ranked matches, before the AI predictors so they can read it.
     let newsInfo = { count: 0, calls: 0 };
     if (newsCalls > 0) {
+      send({ type: "stage", id: "news" });
       newsInfo = await researchNews(prep.list, { maxCalls: newsCalls });
       if (newsInfo.warning) warnings.push(newsInfo.warning);
     }
 
     // Stage 3b: every model predicts the selected matches.
+    send({ type: "stage", id: "ai" });
     const results = await Promise.allSettled(models.map((m) => predict(m, prep.list)));
     const ok = [];
     results.forEach((r, i) => {
@@ -110,6 +121,7 @@ export async function POST(req) {
     }
 
     // Stage 4: best combination plus AI selector, per model in compare mode, otherwise on the merged predictions.
+    send({ type: "stage", id: "slips" });
     const groups = compare
       ? ok.map((o) => ({ model: o.model, predsList: [o.preds] }))
       : [{ model: ok.map((o) => o.model).join(" + "), predsList: ok.map((o) => o.preds) }];
@@ -118,13 +130,29 @@ export async function POST(req) {
       slips: await solve({ list: prep.list, predsList: g.predsList, selectorModel, kinds, targets, unique, opts, title: g.model }),
     })));
 
+    // History: log every outcome of every analysed match and the slips shown, so results can be settled later (npm run settle).
+    const ledger = await recordRun({
+      list: prep.list, predsList: ok.map((o) => o.preds), sets,
+      meta: { targets, models, selector: selectorModel, markets: body.markets ?? "all", window: { fromHours, hours }, opts: { minLegOdds: opts.minLegOdds } },
+    });
+    if (ledger.error) warnings.push(`History log not written: ${ledger.error}`);
+
     const marketsSeen = matches.reduce((a, m) => a + m.markets.length, 0);
-    return Response.json({
+    return {
       matches: matches.length, shortlisted: prep.list.length, marketsSeen, enriched: prep.enriched,
       window: { fromHours, hours },
       selector: selectorModel, news: { calls: newsInfo.calls, matches: newsInfo.count }, sets, warnings,
-    });
-  } catch (e) {
-    return Response.json({ error: e.message }, { status: 500 });
-  }
+    };
+  };
+
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (o) => controller.enqueue(enc.encode(`${JSON.stringify(o)}\n`));
+      try { send({ type: "result", data: await work(send) }); }
+      catch (e) { send({ type: "error", error: e.message }); }
+      controller.close();
+    },
+  });
+  return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store, no-transform" } });
 }

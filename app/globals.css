@@ -101,3 +101,21 @@ section > .seg:first-of-type { margin-top:0; }
 .seg.wrap { flex-wrap:wrap; border:0; gap:6px; overflow:visible; }
 .seg.wrap button { flex:0 0 auto; padding:8px 12px; border:1px solid var(--line); border-radius:999px; }
 .seg.wrap button + button { border-left:1px solid var(--line); }
+
+/* Progress panel */
+.prog { border:1px dashed var(--line); border-radius:16px; padding:32px 24px; text-align:center; }
+.prog h2 { margin:0 0 16px; }
+.prog-bar { height:10px; border-radius:999px; background:var(--line); overflow:hidden; max-width:420px; margin:0 auto; }
+.prog-fill { height:100%; background:var(--stamp); border-radius:999px; transition:width .4s linear; }
+.prog-time { margin:12px 0 18px; color:var(--mute); }
+.prog-time strong { color:inherit; font-weight:600; }
+.prog-steps { list-style:none; margin:0 auto; padding:0; max-width:380px; text-align:left; display:grid; gap:8px; color:var(--mute); }
+.prog-steps li { display:flex; align-items:center; gap:10px; }
+.prog-steps .dot { width:18px; height:18px; border-radius:50%; border:1.5px solid var(--line); display:inline-grid; place-items:center; font-size:.7rem; flex:none; }
+.prog-steps li.done { color:inherit; }
+.prog-steps li.done .dot { background:var(--stamp); border-color:var(--stamp); color:var(--on-stamp); }
+.prog-steps li.now { color:inherit; font-weight:600; }
+.prog-steps li.now .dot { border-color:var(--stamp); animation:progpulse 1.2s ease-in-out infinite; }
+@keyframes progpulse { 50% { box-shadow:0 0 0 5px color-mix(in srgb, var(--stamp) 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .prog-fill { transition:none; } .prog-steps li.now .dot { animation:none; } }
+.sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
